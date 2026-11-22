@@ -1,0 +1,145 @@
+<!doctype html>
+<html lang="pt-br">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>SentinelMobile - Dashboard</title>
+<style>
+:root{--bg:#0f172a;--card:#1e293b;--tx:#e2e8f0;--mut:#94a3b8;--ok:#22c55e;--bad:#ef4444;--warn:#f59e0b;--acc:#38bdf8}
+*{box-sizing:border-box}
+body{margin:0;font:14px system-ui,Segoe UI,sans-serif;background:var(--bg);color:var(--tx)}
+header{display:flex;justify-content:space-between;align-items:center;padding:12px 18px;background:#020617}
+h1{font-size:18px;margin:0}h2{font-size:14px;margin:0 0 10px;color:var(--acc);text-transform:uppercase;letter-spacing:.05em}
+main{display:grid;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));gap:14px;padding:14px}
+.card{background:var(--card);border-radius:10px;padding:14px}.wide{grid-column:1/-1}
+.badge{padding:2px 8px;border-radius:99px;font-size:12px;background:#334155}
+.on{background:var(--ok);color:#052e16}.off{background:var(--bad);color:#fff}.lock{background:var(--warn);color:#422006}
+.row{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
+button{border:0;border-radius:6px;padding:8px 12px;font-weight:600;cursor:pointer;background:#334155;color:var(--tx)}
+button:hover{filter:brightness(1.2)}.b-bad{background:var(--bad)}.b-ok{background:var(--ok);color:#052e16}.b-acc{background:var(--acc);color:#082f49}
+table{width:100%;border-collapse:collapse;font-size:13px}th,td{padding:5px 6px;text-align:left;border-bottom:1px solid #334155;vertical-align:middle}
+th{color:var(--mut);font-weight:600}.mut{color:var(--mut)}.scroll{overflow-x:auto}
+a{color:var(--acc)}img.th{width:64px;height:64px;object-fit:cover;border-radius:6px;cursor:pointer}
+.sev-CRITICA{color:#fff;background:#b91c1c}.sev-ALTA{color:#fff;background:#ea580c}.sev-MEDIA{color:#422006;background:#facc15}
+.sev{padding:2px 8px;border-radius:6px;font-size:12px;font-weight:700}
+.banner{margin:14px 14px 0;padding:12px;border-radius:8px;background:var(--bad);font-weight:700;animation:p 1s infinite alternate}
+@keyframes p{to{filter:brightness(1.4)}}.hidden{display:none}
+.grid{display:grid;grid-template-columns:1fr 90px;gap:6px;align-items:center}
+input[type=number]{width:90px;padding:5px;border-radius:5px;border:1px solid #475569;background:#0f172a;color:var(--tx)}
+#toast{position:fixed;bottom:16px;right:16px;background:#020617;padding:10px 14px;border-radius:8px;opacity:0;transition:.3s;max-width:80vw}
+#toast.show{opacity:1}
+</style>
+</head>
+<body>
+<header><h1>SentinelMobile - Dashboard</h1><span id="conn" class="badge">conectando...</span></header>
+<div id="banner" class="banner hidden"></div>
+<main>
+  <section class="card"><h2>Dispositivos</h2><div id="devices"></div>
+    <div class="row"><button class="b-bad" onclick="cmd('LOCK')">Bloquear</button>
+    <button class="b-ok" onclick="cmd('UNLOCK')">Desbloquear</button></div></section>
+
+  <section class="card"><h2>Simulacao</h2>
+    <div class="row"><button class="b-acc" onclick="sim('R1')">Disparar R1</button>
+    <button class="b-acc" onclick="sim('R2')">Disparar R2</button>
+    <button class="b-acc" onclick="sim('R3')">Disparar R3</button></div>
+    <div class="row"><button onclick="sim('PIN_FAIL')">+ PIN falho</button>
+    <button onclick="sim('SENSITIVE_APP_OPEN')">+ App sensivel</button>
+    <button onclick="sim('PASSWORD_CHANGE')">+ Troca de senha</button>
+    <button onclick="sim('RESET')">Zerar contadores</button></div>
+    <p class="mut">Usa o dispositivo mais recente (ou SIM-DEVICE se nenhum conectou).
+    Use "Zerar contadores" para repetir uma demo sem esperar o cooldown.</p></section>
+
+  <section class="card"><h2>Parametros da heuristica</h2><div id="settings" class="grid"></div>
+    <div class="row"><button class="b-ok" onclick="saveSettings()">Salvar parametros</button></div></section>
+
+  <section class="card wide"><h2>Alertas</h2><div class="scroll"><table id="alerts"></table></div></section>
+  <section class="card"><h2>Localizacoes</h2><div class="scroll"><table id="locs"></table></div></section>
+  <section class="card"><h2>Eventos</h2><div class="scroll"><table id="events"></table></div></section>
+  <section class="card"><h2>Comandos</h2><div class="scroll"><table id="cmds"></table></div></section>
+</main>
+<div id="toast"></div>
+
+<script>
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const tm = ms => new Date(ms).toLocaleTimeString();
+let TOKEN = localStorage.getItem("sentinel_admin") || "";
+const qs = new URLSearchParams(location.search);
+if (qs.get("t")) { TOKEN = qs.get("t"); localStorage.setItem("sentinel_admin", TOKEN); history.replaceState(null, "", location.pathname); }
+let asked = false, lastSig = "", settingsFilled = false, lastState = null;
+
+function toast(msg){ const t=$("#toast"); t.textContent=msg; t.classList.add("show"); clearTimeout(toast.h); toast.h=setTimeout(()=>t.classList.remove("show"),3500); }
+
+async function api(path, opt = {}) {
+  const ctl = new AbortController(), to = setTimeout(() => ctl.abort(), 5000);   // timeout de 5 s
+  try {
+    const r = await fetch(path, {...opt, signal: ctl.signal,
+      headers: {"Content-Type":"application/json","X-Admin-Token":TOKEN, ...(opt.headers||{})}});
+    if (r.status === 401 && !asked) { asked = true; const t = prompt("Token admin (aparece no terminal do servidor):"); if (t) { TOKEN=t.trim(); localStorage.setItem("sentinel_admin",TOKEN);} asked=false; }
+    if (!r.ok) { let m = "HTTP " + r.status; try { const j = await r.json(); m = typeof j.detail === "string" ? j.detail : JSON.stringify(j.detail); } catch(e){} throw new Error(m); }
+    return await r.json();
+  } finally { clearTimeout(to); }
+}
+
+function setConn(ok, msg){ const c=$("#conn"); c.textContent = ok ? "servidor online" : ("sem conexao: " + (msg||"")); c.className = "badge " + (ok ? "on" : "off"); }
+function loc(lat, lon){ if (lat==null||lon==null) return '<span class="mut">sem localizacao</span>'; lat=Number(lat); lon=Number(lon);
+  return `<a target="_blank" rel="noopener" href="https://www.openstreetmap.org/?mlat=${lat}&mlon=${lon}#map=17/${lat}/${lon}">${lat.toFixed(5)}, ${lon.toFixed(5)}</a>`; }
+function tbl(id, head, rows){ $(id).innerHTML = "<tr>"+head.map(h=>"<th>"+h+"</th>").join("")+"</tr>" +
+  (rows.length ? rows.map(r=>"<tr>"+r.map(x=>"<td>"+x+"</td>").join("")+"</tr>").join("") : `<tr><td colspan="${head.length}" class="mut">sem dados</td></tr>`); }
+
+function render(s) {
+  $("#devices").innerHTML = s.devices.length ? s.devices.map(d => {
+    const l = d.last_location;
+    return `<div style="margin-bottom:10px"><b>${esc(d.device_id)}</b>
+      <span class="badge ${d.online?'on':'off'}">${d.online?'online':'offline'}</span>
+      ${d.locked?'<span class="badge lock">BLOQUEADO</span>':''}<br>
+      <span class="mut">Ultima posicao:</span> ${l ? loc(l.lat,l.lon)+` (±${l.accuracy!=null?Math.round(l.accuracy)+' m':'?'}, ${esc(l.source)}, ${tm(l.ts)})` : '<span class="mut">nenhuma</span>'}<br>
+      <span class="mut">Visto por ultimo:</span> ${tm(d.last_seen)}</div>`; }).join("") : '<span class="mut">Nenhum dispositivo conectou ainda.</span>';
+
+  tbl("#alerts", ["Hora","Disp.","Regra","Sev.","Origem","Local","Auto-lock","Foto","Detalhe"], s.alerts.map(a => [
+    tm(a.ts), esc(a.device_id), esc(a.rule_id), `<span class="sev sev-${esc(a.severity)}">${esc(a.severity)}</span>`,
+    esc(a.origin), loc(a.lat,a.lon), a.auto_lock?"sim":"-",
+    a.has_photo ? `<img class="th" src="/api/v1/photos/${a.id}?t=${encodeURIComponent(TOKEN)}" onclick="window.open(this.src)">` : '<span class="mut">-</span>',
+    esc(a.detail)]));
+  tbl("#locs", ["Hora","Lat, Lon","Prec.","Fonte"], s.locations.map(l => [tm(l.ts), loc(l.lat,l.lon), l.accuracy!=null?Math.round(l.accuracy)+" m":"-", esc(l.source)]));
+  tbl("#events", ["Hora","Disp.","Tipo","Meta"], s.events.map(e => [tm(e.ts), esc(e.device_id), esc(e.event_type), esc(e.meta)]));
+  tbl("#cmds", ["#","Disp.","Comando","Status","Origem"], s.commands.map(c => [c.id, esc(c.device_id), esc(c.command), esc(c.status), esc(c.origin)]));
+}
+
+function updateBanner(s) {
+  const a = s.alerts[0], b = $("#banner");
+  if (a && s.now - a.received < 30000) { b.textContent = `ALERTA ${a.rule_id} (${a.severity}) - dispositivo ${a.device_id}${a.has_photo?' - foto recebida':''}`; b.classList.remove("hidden"); }
+  else b.classList.add("hidden");
+}
+
+const FIELDS = [["R1_MAX_FALHAS","R1: max. falhas de PIN"],["R1_JANELA_S","R1: janela (s)"],["R2_MAX_ACESSOS","R2: max. acessos"],
+  ["R2_JANELA_S","R2: janela (s)"],["R3_JANELA_S","R3: janela (s)"],["COOLDOWN_S","Cooldown (s)"]];
+$("#settings").innerHTML = FIELDS.map(([k,l]) => `<label for="s_${k}">${l}</label><input type="number" id="s_${k}">`).join("") +
+  ["R1","R2","R3"].map(r => `<label for="al_${r}">Auto-bloqueio em ${r}</label><input type="checkbox" id="al_${r}">`).join("");
+function fillSettings(st){ FIELDS.forEach(([k]) => $("#s_"+k).value = st[k]); ["R1","R2","R3"].forEach(r => $("#al_"+r).checked = st.AUTO_LOCK_RULES.includes(r)); settingsFilled = true; }
+
+async function saveSettings(){
+  try {
+    const body = {}; FIELDS.forEach(([k]) => body[k] = parseInt($("#s_"+k).value, 10));
+    body.AUTO_LOCK_RULES = ["R1","R2","R3"].filter(r => $("#al_"+r).checked);
+    fillSettings(await api("/api/v1/settings", {method:"PUT", body: JSON.stringify(body)})); toast("Parametros salvos");
+  } catch(e){ toast("Erro: " + e.message); }
+}
+async function cmd(c){ try { const r = await api("/api/v1/commands", {method:"POST", body: JSON.stringify({command:c})}); toast(c + " enfileirado para " + r.device_id); } catch(e){ toast("Erro: " + e.message); } }
+async function sim(s){ try { const r = await api("/api/v1/sim", {method:"POST", body: JSON.stringify({scenario:s})});
+  toast(r.reset ? "Contadores zerados" : (r.triggered.length ? "Disparou: " + r.triggered.map(t=>t.rule_id).join(", ") : "Evento registrado (sem disparo)")); } catch(e){ toast("Erro: " + e.message); } }
+
+async function tick() {
+  try {
+    const s = await api("/api/v1/state"); setConn(true); lastState = s;
+    const {now, ...rest} = s, sig = JSON.stringify(rest);
+    if (sig !== lastSig) { lastSig = sig; render(s); }
+    if (!settingsFilled) fillSettings(s.settings);
+    updateBanner(s);
+  } catch(e) { setConn(false, e.message); }
+  setTimeout(tick, 2000);   // proximo polling; falhas nao acumulam requisicoes
+}
+tick();
+</script>
+</body>
+</html>

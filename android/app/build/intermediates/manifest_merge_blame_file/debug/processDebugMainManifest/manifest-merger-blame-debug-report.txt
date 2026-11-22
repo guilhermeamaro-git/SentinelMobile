@@ -1,0 +1,107 @@
+1<?xml version="1.0" encoding="utf-8"?>
+2<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+3    package="com.sentinel.mobile"
+4    android:versionCode="1"
+5    android:versionName="1.0" >
+6
+7    <uses-sdk
+8        android:minSdkVersion="26"
+9        android:targetSdkVersion="34" />
+10
+11    <uses-permission android:name="android.permission.INTERNET" />
+11-->C:\Users\Guilherme\Documents\SentinelMobile\android\app\src\main\AndroidManifest.xml:4:5-67
+11-->C:\Users\Guilherme\Documents\SentinelMobile\android\app\src\main\AndroidManifest.xml:4:22-64
+12    <uses-permission android:name="android.permission.CAMERA" />
+12-->C:\Users\Guilherme\Documents\SentinelMobile\android\app\src\main\AndroidManifest.xml:5:5-65
+12-->C:\Users\Guilherme\Documents\SentinelMobile\android\app\src\main\AndroidManifest.xml:5:22-62
+13    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+13-->C:\Users\Guilherme\Documents\SentinelMobile\android\app\src\main\AndroidManifest.xml:6:5-79
+13-->C:\Users\Guilherme\Documents\SentinelMobile\android\app\src\main\AndroidManifest.xml:6:22-76
+14    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+14-->C:\Users\Guilherme\Documents\SentinelMobile\android\app\src\main\AndroidManifest.xml:7:5-81
+14-->C:\Users\Guilherme\Documents\SentinelMobile\android\app\src\main\AndroidManifest.xml:7:22-78
+15
+16    <uses-feature
+16-->C:\Users\Guilherme\Documents\SentinelMobile\android\app\src\main\AndroidManifest.xml:8:5-85
+17        android:name="android.hardware.camera"
+17-->C:\Users\Guilherme\Documents\SentinelMobile\android\app\src\main\AndroidManifest.xml:8:19-57
+18        android:required="false" />
+18-->C:\Users\Guilherme\Documents\SentinelMobile\android\app\src\main\AndroidManifest.xml:8:58-82
+19    <uses-feature
+19-->C:\Users\Guilherme\Documents\SentinelMobile\android\app\src\main\AndroidManifest.xml:9:5-91
+20        android:name="android.hardware.camera.front"
+20-->C:\Users\Guilherme\Documents\SentinelMobile\android\app\src\main\AndroidManifest.xml:9:19-63
+21        android:required="false" />
+21-->C:\Users\Guilherme\Documents\SentinelMobile\android\app\src\main\AndroidManifest.xml:9:64-88
+22
+23    <application
+23-->C:\Users\Guilherme\Documents\SentinelMobile\android\app\src\main\AndroidManifest.xml:11:5-46:19
+24        android:name="com.sentinel.mobile.SentinelApp"
+24-->C:\Users\Guilherme\Documents\SentinelMobile\android\app\src\main\AndroidManifest.xml:12:9-36
+25        android:allowBackup="false"
+25-->C:\Users\Guilherme\Documents\SentinelMobile\android\app\src\main\AndroidManifest.xml:14:9-36
+26        android:debuggable="true"
+27        android:extractNativeLibs="false"
+28        android:label="SentinelMobile"
+28-->C:\Users\Guilherme\Documents\SentinelMobile\android\app\src\main\AndroidManifest.xml:13:9-39
+29        android:theme="@android:style/Theme.Material.Light.NoActionBar"
+29-->C:\Users\Guilherme\Documents\SentinelMobile\android\app\src\main\AndroidManifest.xml:16:9-72
+30        android:usesCleartextTraffic="false" >
+30-->C:\Users\Guilherme\Documents\SentinelMobile\android\app\src\main\AndroidManifest.xml:15:9-45
+31        <activity
+31-->C:\Users\Guilherme\Documents\SentinelMobile\android\app\src\main\AndroidManifest.xml:18:9-26:20
+32            android:name="com.sentinel.mobile.MainActivity"
+32-->C:\Users\Guilherme\Documents\SentinelMobile\android\app\src\main\AndroidManifest.xml:19:13-41
+33            android:exported="true"
+33-->C:\Users\Guilherme\Documents\SentinelMobile\android\app\src\main\AndroidManifest.xml:20:13-36
+34            android:screenOrientation="portrait" >
+34-->C:\Users\Guilherme\Documents\SentinelMobile\android\app\src\main\AndroidManifest.xml:21:13-49
+35            <intent-filter>
+35-->C:\Users\Guilherme\Documents\SentinelMobile\android\app\src\main\AndroidManifest.xml:22:13-25:29
+36                <action android:name="android.intent.action.MAIN" />
+36-->C:\Users\Guilherme\Documents\SentinelMobile\android\app\src\main\AndroidManifest.xml:23:17-69
+36-->C:\Users\Guilherme\Documents\SentinelMobile\android\app\src\main\AndroidManifest.xml:23:25-66
+37
+38                <category android:name="android.intent.category.LAUNCHER" />
+38-->C:\Users\Guilherme\Documents\SentinelMobile\android\app\src\main\AndroidManifest.xml:24:17-77
+38-->C:\Users\Guilherme\Documents\SentinelMobile\android\app\src\main\AndroidManifest.xml:24:27-74
+39            </intent-filter>
+40        </activity>
+41        <activity
+41-->C:\Users\Guilherme\Documents\SentinelMobile\android\app\src\main\AndroidManifest.xml:28:9-33:49
+42            android:name="com.sentinel.mobile.LockActivity"
+42-->C:\Users\Guilherme\Documents\SentinelMobile\android\app\src\main\AndroidManifest.xml:29:13-41
+43            android:excludeFromRecents="true"
+43-->C:\Users\Guilherme\Documents\SentinelMobile\android\app\src\main\AndroidManifest.xml:33:13-46
+44            android:exported="false"
+44-->C:\Users\Guilherme\Documents\SentinelMobile\android\app\src\main\AndroidManifest.xml:30:13-37
+45            android:launchMode="singleTask"
+45-->C:\Users\Guilherme\Documents\SentinelMobile\android\app\src\main\AndroidManifest.xml:32:13-44
+46            android:screenOrientation="portrait" />
+46-->C:\Users\Guilherme\Documents\SentinelMobile\android\app\src\main\AndroidManifest.xml:31:13-49
+47
+48        <receiver
+48-->C:\Users\Guilherme\Documents\SentinelMobile\android\app\src\main\AndroidManifest.xml:35:9-45:20
+49            android:name="com.sentinel.mobile.AdminReceiver"
+49-->C:\Users\Guilherme\Documents\SentinelMobile\android\app\src\main\AndroidManifest.xml:36:13-42
+50            android:exported="true"
+50-->C:\Users\Guilherme\Documents\SentinelMobile\android\app\src\main\AndroidManifest.xml:37:13-36
+51            android:permission="android.permission.BIND_DEVICE_ADMIN" >
+51-->C:\Users\Guilherme\Documents\SentinelMobile\android\app\src\main\AndroidManifest.xml:38:13-70
+52            <meta-data
+52-->C:\Users\Guilherme\Documents\SentinelMobile\android\app\src\main\AndroidManifest.xml:39:13-41:56
+53                android:name="android.app.device_admin"
+53-->C:\Users\Guilherme\Documents\SentinelMobile\android\app\src\main\AndroidManifest.xml:40:17-56
+54                android:resource="@xml/device_admin" />
+54-->C:\Users\Guilherme\Documents\SentinelMobile\android\app\src\main\AndroidManifest.xml:41:17-53
+55
+56            <intent-filter>
+56-->C:\Users\Guilherme\Documents\SentinelMobile\android\app\src\main\AndroidManifest.xml:42:13-44:29
+57                <action android:name="android.app.action.DEVICE_ADMIN_ENABLED" />
+57-->C:\Users\Guilherme\Documents\SentinelMobile\android\app\src\main\AndroidManifest.xml:43:17-82
+57-->C:\Users\Guilherme\Documents\SentinelMobile\android\app\src\main\AndroidManifest.xml:43:25-79
+58            </intent-filter>
+59        </receiver>
+60    </application>
+61
+62</manifest>

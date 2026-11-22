@@ -1,0 +1,14 @@
+[
+    {
+        "merged": "C:\\Users\\Guilherme\\.gradle\\daemon\\8.7\\com.sentinel.mobile.app-debug-4:\\xml_device_admin.xml.flat",
+        "source": "C:\\Users\\Guilherme\\.gradle\\daemon\\8.7\\com.sentinel.mobile.app-main-6:\\xml\\device_admin.xml"
+    },
+    {
+        "merged": "com.sentinel.mobile.app-debug-4:/raw_sentinel_cert.crt.flat",
+        "source": "com.sentinel.mobile.app-main-6:/raw/sentinel_cert.crt"
+    },
+    {
+        "merged": "C:\\Users\\Guilherme\\.gradle\\daemon\\8.7\\com.sentinel.mobile.app-debug-4:\\raw_sentinel_cert.crt.flat",
+        "source": "C:\\Users\\Guilherme\\.gradle\\daemon\\8.7\\com.sentinel.mobile.app-main-6:\\raw\\sentinel_cert.crt"
+    }
+]

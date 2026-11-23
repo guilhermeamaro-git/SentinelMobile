@@ -68,8 +68,16 @@ class MainActivity : Activity() {
         root.addView(url); root.addView(did); root.addView(code)
         root.addView(row(
             btn("Salvar") {
-                Prefs.baseUrl = url.text.toString(); Prefs.deviceId = did.text.toString()
-                Sentinel.refreshNow(); Toast.makeText(this, "Salvo", Toast.LENGTH_SHORT).show()
+                Prefs.baseUrl = url.text.toString()
+                // Depois de pareado, o nome no servidor vem do token: renomear exige parear de novo.
+                if (Prefs.token.isNotEmpty() && did.text.toString().trim() != Prefs.deviceId) {
+                    did.setText(Prefs.deviceId)
+                    Toast.makeText(this, "Para trocar o Device ID, gere um codigo e pareie de novo", Toast.LENGTH_LONG).show()
+                } else {
+                    Prefs.deviceId = did.text.toString()
+                    Toast.makeText(this, "Salvo", Toast.LENGTH_SHORT).show()
+                }
+                Sentinel.refreshNow()
             },
             btn("Parear") {
                 Prefs.baseUrl = url.text.toString(); Prefs.deviceId = did.text.toString()

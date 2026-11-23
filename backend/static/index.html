@@ -28,11 +28,21 @@ a{color:var(--acc)}img.th{width:64px;height:64px;object-fit:cover;border-radius:
 input[type=number]{width:90px;padding:5px;border-radius:5px;border:1px solid #475569;background:#0f172a;color:var(--tx)}
 #toast{position:fixed;bottom:16px;right:16px;background:#020617;padding:10px 14px;border-radius:8px;opacity:0;transition:.3s;max-width:80vw}
 #toast.show{opacity:1}
+.login{position:fixed;inset:0;background:rgba(2,6,23,.92);display:flex;align-items:center;justify-content:center;z-index:10;padding:16px}
+.login form{width:100%;max-width:360px}.login input{width:100%;padding:9px;border-radius:6px;border:1px solid #475569;background:#0f172a;color:var(--tx)}
+.err{color:var(--bad);min-height:1em;margin:8px 0 0}.login.hidden{display:none}
 .pair{margin-top:10px;padding:10px;border-radius:8px;background:#0f172a}.pair b{font:700 26px ui-monospace,monospace;letter-spacing:.12em;color:var(--acc)}
 </style>
 </head>
 <body>
-<header><h1>SentinelMobile - Dashboard</h1><span id="conn" class="badge">conectando...</span></header>
+<header><h1>SentinelMobile - Dashboard</h1>
+  <span><span id="conn" class="badge">conectando...</span> <button id="logout" class="hidden" onclick="logout()">Sair</button></span></header>
+<div id="login" class="login hidden"><form class="card" onsubmit="login(event)">
+  <h2>Entrar no painel</h2>
+  <p class="mut">O token admin aparece no terminal quando o servidor inicia.</p>
+  <input id="admintok" type="password" autocomplete="current-password" placeholder="Token admin" required>
+  <div class="row"><button class="b-acc" type="submit">Entrar</button></div>
+  <p id="loginerr" class="err"></p></form></div>
 <div id="banner" class="banner hidden"></div>
 <main>
   <section class="card"><h2>Dispositivos</h2><div id="devices"></div>
@@ -66,10 +76,11 @@ input[type=number]{width:90px;padding:5px;border-radius:5px;border:1px solid #47
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const tm = ms => new Date(ms).toLocaleTimeString();
-let TOKEN = localStorage.getItem("sentinel_admin") || "";
-const qs = new URLSearchParams(location.search);
-if (qs.get("t")) { TOKEN = qs.get("t"); localStorage.setItem("sentinel_admin", TOKEN); history.replaceState(null, "", location.pathname); }
-let asked = false, lastSig = "", settingsFilled = false, lastState = null;
+// Autenticacao por cookie de sessao HttpOnly (definido em /api/v1/login): o token admin nao fica
+// em URL nem em localStorage. Remove o token salvo por versoes antigas do painel.
+try { localStorage.removeItem("sentinel_admin"); } catch(e) {}
+if (location.search) history.replaceState(null, "", location.pathname);
+let lastSig = "", settingsFilled = false, lastState = null;
 
 function toast(msg){ const t=$("#toast"); t.textContent=msg; t.classList.add("show"); clearTimeout(toast.h); toast.h=setTimeout(()=>t.classList.remove("show"),3500); }
 
@@ -77,12 +88,26 @@ async function api(path, opt = {}) {
   const ctl = new AbortController(), to = setTimeout(() => ctl.abort(), 5000);   // timeout de 5 s
   try {
     const r = await fetch(path, {...opt, signal: ctl.signal,
-      headers: {"Content-Type":"application/json","X-Admin-Token":TOKEN, ...(opt.headers||{})}});
-    if (r.status === 401 && !asked) { asked = true; const t = prompt("Token admin (aparece no terminal do servidor):"); if (t) { TOKEN=t.trim(); localStorage.setItem("sentinel_admin",TOKEN);} asked=false; }
+      credentials: "same-origin", headers: {"Content-Type":"application/json", ...(opt.headers||{})}});
+    if (r.status === 401 && !path.endsWith("/login")) showLogin(true);
     if (!r.ok) { let m = "HTTP " + r.status; try { const j = await r.json(); m = typeof j.detail === "string" ? j.detail : JSON.stringify(j.detail); } catch(e){} throw new Error(m); }
     return await r.json();
   } finally { clearTimeout(to); }
 }
+
+function showLogin(on){
+  const box = $("#login"), was = !box.classList.contains("hidden");
+  box.classList.toggle("hidden", !on); $("#logout").classList.toggle("hidden", on);
+  if (on && !was) { $("#admintok").value = ""; $("#admintok").focus(); }
+}
+async function login(ev){
+  ev.preventDefault();
+  try {
+    await api("/api/v1/login", {method:"POST", body: JSON.stringify({token: $("#admintok").value})});
+    $("#loginerr").textContent = ""; showLogin(false); settingsFilled = false; lastSig = "";
+  } catch(e){ $("#loginerr").textContent = e.message; }
+}
+async function logout(){ try { await api("/api/v1/logout", {method:"POST"}); } catch(e){} showLogin(true); }
 
 function setConn(ok, msg){ const c=$("#conn"); c.textContent = ok ? "servidor online" : ("sem conexao: " + (msg||"")); c.className = "badge " + (ok ? "on" : "off"); }
 function loc(lat, lon){ if (lat==null||lon==null) return '<span class="mut">sem localizacao</span>'; lat=Number(lat); lon=Number(lon);
@@ -103,7 +128,7 @@ function render(s) {
   tbl("#alerts", ["Hora","Disp.","Regra","Sev.","Origem","Local","Auto-lock","Foto","Detalhe"], s.alerts.map(a => [
     tm(a.ts), esc(a.device_id), esc(a.rule_id), `<span class="sev sev-${esc(a.severity)}">${esc(a.severity)}</span>`,
     esc(a.origin), loc(a.lat,a.lon), a.auto_lock?"sim":"-",
-    a.has_photo ? `<img class="th" src="/api/v1/photos/${a.id}?t=${encodeURIComponent(TOKEN)}" onclick="window.open(this.src)">` : '<span class="mut">-</span>',
+    a.has_photo ? `<img class="th" src="/api/v1/photos/${a.id}" onclick="window.open(this.src)">` : '<span class="mut">-</span>',
     esc(a.detail)]));
   tbl("#locs", ["Hora","Lat, Lon","Prec.","Fonte"], s.locations.map(l => [tm(l.ts), loc(l.lat,l.lon), l.accuracy!=null?Math.round(l.accuracy)+" m":"-", esc(l.source)]));
   tbl("#events", ["Hora","Disp.","Tipo","Meta"], s.events.map(e => [tm(e.ts), esc(e.device_id), esc(e.event_type), esc(e.meta)]));
@@ -143,7 +168,7 @@ async function sim(s){ try { const r = await api("/api/v1/sim", {method:"POST", 
 
 async function tick() {
   try {
-    const s = await api("/api/v1/state"); setConn(true); lastState = s;
+    const s = await api("/api/v1/state"); setConn(true); showLogin(false); lastState = s;
     const {now, ...rest} = s, sig = JSON.stringify(rest);
     if (sig !== lastSig) { lastSig = sig; render(s); }
     if (!settingsFilled) fillSettings(s.settings);

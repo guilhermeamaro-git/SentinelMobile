@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional
 
 import uvicorn
-from fastapi import Depends, FastAPI, Header, HTTPException, Query
+from fastapi import Cookie, Depends, FastAPI, Header, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
@@ -112,10 +112,35 @@ PAIR_TTL_MS = 10 * 60 * 1000
 DEVICE_ID_RE = re.compile(r"^[A-Za-z0-9_.-]{1,64}$")
 
 
-def auth_admin(x_admin_token: Optional[str] = Header(None), t: Optional[str] = Query(None)) -> bool:
-    if not _eq(x_admin_token or t or "", CFG["admin_token"]):
-        raise HTTPException(401, "token admin invalido")
-    return True
+# Sessao do painel: o token do admin e digitado uma vez na tela de login e trocado por um
+# cookie HttpOnly. Assim ele nao aparece em URLs (historico do navegador, log de acesso do
+# uvicorn, links de foto) nem fica acessivel a JavaScript.
+SESSION_COOKIE = "sentinel_session"
+SESSION_TTL_MS = 12 * 3600 * 1000
+SESSIONS: Dict[str, int] = {}  # id da sessao -> expira em (ms). Em memoria: reiniciar o servidor desloga.
+SESSIONS_LOCK = threading.Lock()
+LOGIN_LIMIT = AttemptLimiter(max_fails=10, window_s=600)
+
+
+def _session_valid(sid: Optional[str]) -> bool:
+    if not sid:
+        return False
+    now = db.now_ms()
+    with SESSIONS_LOCK:
+        for k in [k for k, exp in SESSIONS.items() if exp <= now]:
+            del SESSIONS[k]
+        return sid in SESSIONS
+
+
+def auth_admin(x_admin_token: Optional[str] = Header(None),
+               sentinel_session: Optional[str] = Cookie(None)) -> bool:
+    """Aceita o cookie de sessao (painel) ou o cabecalho X-Admin-Token (scripts/curl).
+    O token na URL (?t=...) nao e mais aceito."""
+    if _session_valid(sentinel_session):
+        return True
+    if x_admin_token and _eq(x_admin_token, CFG["admin_token"]):
+        return True
+    raise HTTPException(401, "login necessario")
 
 
 # ----------------------------------------------------------------- modelos
@@ -156,6 +181,10 @@ class CommandIn(BaseModel):
 class RegisterIn(BaseModel):
     code: str = Field(..., min_length=4, max_length=32)
     device_id: str = Field(..., min_length=1, max_length=64)
+
+
+class LoginIn(BaseModel):
+    token: str = Field(..., min_length=1, max_length=200)
 
 
 class SimIn(BaseModel):
@@ -378,6 +407,33 @@ def ack(cid: int, did: str = Depends(auth_device)):
 
 
 # ----------------------------------------------------------------- endpoints (dashboard)
+@app.post("/api/v1/login")
+def login(p: LoginIn):
+    LOGIN_LIMIT.check()
+    if not _eq(p.token.strip(), CFG["admin_token"]):
+        LOGIN_LIMIT.fail()
+        raise HTTPException(401, "token admin invalido")
+    sid = secrets.token_urlsafe(32)
+    with SESSIONS_LOCK:
+        SESSIONS[sid] = db.now_ms() + SESSION_TTL_MS
+    resp = JSONResponse({"ok": True})
+    # SameSite=Strict: o navegador nao envia o cookie em requisicoes vindas de outros sites (CSRF).
+    resp.set_cookie(SESSION_COOKIE, sid, max_age=SESSION_TTL_MS // 1000, path="/",
+                    httponly=True, secure=True, samesite="strict")
+    return resp
+
+
+@app.post("/api/v1/logout")
+def logout(request: Request):
+    sid = request.cookies.get(SESSION_COOKIE)
+    if sid:
+        with SESSIONS_LOCK:
+            SESSIONS.pop(sid, None)
+    resp = JSONResponse({"ok": True})
+    resp.delete_cookie(SESSION_COOKIE, path="/")
+    return resp
+
+
 @app.post("/api/v1/pairing")
 def new_pairing_code(_: bool = Depends(auth_admin)):
     """Gera um codigo de 8 caracteres, valido por 10 minutos e para um unico aparelho."""
@@ -523,8 +579,9 @@ def main():
     print(" Copiar para o Android:", crt)
     print("             -> android/app/src/main/res/raw/sentinel_cert.crt")
     print("-" * 66)
-    print(" Dashboard (PC) : https://127.0.0.1:%d/?t=%s" % (args.port, CFG["admin_token"]))
-    print(" Dashboard (rede): https://%s:%d/?t=%s" % (host_ip, args.port, CFG["admin_token"]))
+    print(" Dashboard (PC) : https://127.0.0.1:%d/" % args.port)
+    print(" Dashboard (rede): https://%s:%d/" % (host_ip, args.port))
+    print(" Token admin (digite na tela de login do painel):", CFG["admin_token"])
     print(" Novo aparelho: no painel, 'Parear novo aparelho' gera um codigo; digite-o no app.")
     print(" Alternativa USB: adb reverse tcp:%d tcp:%d  (app usa 127.0.0.1)" % (args.port, args.port))
     print("=" * 66)

@@ -3,11 +3,16 @@ package com.sentinel.mobile
 import android.app.Application
 import android.content.Context
 import android.content.SharedPreferences
+import android.util.Base64
+import java.security.MessageDigest
+import java.security.SecureRandom
 import java.text.SimpleDateFormat
 import java.util.ArrayDeque
 import java.util.Date
 import java.util.Locale
 import java.util.UUID
+import javax.crypto.SecretKeyFactory
+import javax.crypto.spec.PBEKeySpec
 
 class SentinelApp : Application() {
     override fun onCreate() {
@@ -30,8 +35,8 @@ object Prefs {
     private lateinit var sp: SharedPreferences
     fun init(ctx: Context) {
         sp = ctx.getSharedPreferences("sentinel", Context.MODE_PRIVATE)
-        // Limpa o token compartilhado da versao antiga (agora cada aparelho tem o seu).
-        if (sp.contains("token")) sp.edit().remove("token").apply()
+        // Limpa dados da versao antiga: token compartilhado e PIN em texto puro.
+        if (sp.contains("token") || sp.contains("unlockPin")) sp.edit().remove("token").remove("unlockPin").apply()
     }
 
     var baseUrl: String
@@ -61,9 +66,22 @@ object Prefs {
         get() = sp.getBoolean("locked", false)
         set(v) = sp.edit().putBoolean("locked", v).apply()
 
-    var unlockPin: String
-        get() = sp.getString("unlockPin", "1234")!!
-        set(v) = sp.edit().putString("unlockPin", v).apply()
+    // PIN do app: so o hash (PBKDF2) e o salt ficam salvos, nunca o PIN em si.
+    var pinHash: String
+        get() = sp.getString("pinHash", "")!!
+        set(v) = sp.edit().putString("pinHash", v).apply()
+
+    var pinSalt: String
+        get() = sp.getString("pinSalt", "")!!
+        set(v) = sp.edit().putString("pinSalt", v).apply()
+
+    var pinFails: Int
+        get() = sp.getInt("pinFails", 0)
+        set(v) = sp.edit().putInt("pinFails", v).apply()
+
+    var pinBlockedUntil: Long
+        get() = sp.getLong("pinBlockedUntil", 0L)
+        set(v) = sp.edit().putLong("pinBlockedUntil", v).apply()
 
     var simOffline: Boolean
         get() = sp.getBoolean("simOffline", false)
@@ -100,4 +118,70 @@ object AppLog {
 
     @Synchronized
     fun text(): String = lines.joinToString("\n")
+}
+
+/**
+ * PIN do app (tela de bloqueio e teste de R1).
+ * - Nao existe PIN padrao: o usuario define no primeiro uso.
+ * - Guardamos PBKDF2(PIN, salt) em vez do PIN.
+ * - Depois de 5 erros seguidos, novas tentativas ficam bloqueadas por 30 s, dobrando a cada erro
+ *   (ate 15 min). A contagem fica salva, entao fechar o app nao zera. Sao 5 (e nao 3) para a
+ *   regra R1 (padrao: mais de 3 falhas) disparar, com foto, antes do bloqueio por tempo.
+ * Cada erro tambem vira um evento PIN_FAIL (quem chama e que envia), alimentando a regra R1.
+ */
+object Pin {
+    sealed class Result {
+        object Ok : Result()
+        object Wrong : Result()
+        class Blocked(val remainingMs: Long) : Result()
+        object NotSet : Result()
+    }
+
+    private const val ITERATIONS = 20_000
+    private const val FREE_ATTEMPTS = 5
+
+    fun isSet() = Prefs.pinHash.isNotEmpty()
+
+    fun isValidFormat(p: String) = p.length in 4..8 && p.all { it in '0'..'9' }
+
+    fun set(p: String) {
+        require(isValidFormat(p)) { "PIN deve ter de 4 a 8 digitos" }
+        val salt = ByteArray(16).also { SecureRandom().nextBytes(it) }
+        Prefs.pinSalt = Base64.encodeToString(salt, Base64.NO_WRAP)
+        Prefs.pinHash = Base64.encodeToString(derive(p, salt), Base64.NO_WRAP)
+        Prefs.pinFails = 0
+        Prefs.pinBlockedUntil = 0L
+    }
+
+    fun blockedForMs(): Long = maxOf(0L, Prefs.pinBlockedUntil - System.currentTimeMillis())
+
+    @Synchronized
+    fun attempt(p: String): Result {
+        if (!isSet()) return Result.NotSet
+        val wait = blockedForMs()
+        if (wait > 0) return Result.Blocked(wait)
+        val salt = Base64.decode(Prefs.pinSalt, Base64.NO_WRAP)
+        val expected = Base64.decode(Prefs.pinHash, Base64.NO_WRAP)
+        if (MessageDigest.isEqual(derive(p, salt), expected)) {   // comparacao em tempo constante
+            Prefs.pinFails = 0
+            Prefs.pinBlockedUntil = 0L
+            return Result.Ok
+        }
+        val fails = Prefs.pinFails + 1
+        Prefs.pinFails = fails
+        if (fails >= FREE_ATTEMPTS) {
+            val delay = minOf(15 * 60_000L, 30_000L shl minOf(fails - FREE_ATTEMPTS, 5))
+            Prefs.pinBlockedUntil = System.currentTimeMillis() + delay
+        }
+        return Result.Wrong
+    }
+
+    private fun derive(p: String, salt: ByteArray): ByteArray {
+        val spec = PBEKeySpec(p.toCharArray(), salt, ITERATIONS, 256)
+        try {
+            return SecretKeyFactory.getInstance("PBKDF2WithHmacSHA256").generateSecret(spec).encoded
+        } finally {
+            spec.clearPassword()
+        }
+    }
 }

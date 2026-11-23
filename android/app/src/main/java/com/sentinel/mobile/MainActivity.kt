@@ -2,6 +2,7 @@ package com.sentinel.mobile
 
 import android.Manifest
 import android.app.Activity
+import android.app.AlertDialog
 import android.app.admin.DevicePolicyManager
 import android.content.Intent
 import android.graphics.Typeface
@@ -106,17 +107,22 @@ class MainActivity : Activity() {
             Prefs.forceNoGps = it; AppLog.add(if (it) "GPS desligado (simulado)" else "GPS normal")
         })
 
-        // --- PIN interno
-        root.addView(head("PIN interno do app (R1 real). PIN correto: ${Prefs.unlockPin}"))
-        val pin = input("digite um PIN", "").apply {
+        // --- PIN interno (o PIN nunca e exibido; erros viram PIN_FAIL e alimentam a R1)
+        root.addView(head("PIN do app (sai da tela de bloqueio; erros disparam a R1)"))
+        val pin = input("digite o PIN", "").apply {
             inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_VARIATION_PASSWORD
         }
         root.addView(pin)
-        root.addView(btn("Testar PIN") {
-            if (pin.text.toString() == Prefs.unlockPin) Toast.makeText(this, "PIN correto", Toast.LENGTH_SHORT).show()
-            else { Toast.makeText(this, "PIN incorreto", Toast.LENGTH_SHORT).show(); Sentinel.onEvent("PIN_FAIL", "PIN interno") }
-            pin.setText("")
-        })
+        root.addView(row(
+            btn("Testar PIN") {
+                if (checkPin(pin.text.toString())) toast("PIN correto")
+                pin.setText("")
+            },
+            btn("Trocar PIN (digite o atual)") {
+                if (checkPin(pin.text.toString())) askNewPin(firstTime = false)
+                pin.setText("")
+            }
+        ))
 
         // --- log
         root.addView(head("Log"))
@@ -124,6 +130,36 @@ class MainActivity : Activity() {
         root.addView(logView)
 
         askPermissions()
+        if (!Pin.isSet()) askNewPin(firstTime = true)   // nao existe PIN padrao
+    }
+
+    private fun toast(msg: String) = Toast.makeText(this, msg, Toast.LENGTH_SHORT).show()
+
+    /** Confere o PIN com o mesmo limite de tentativas da tela de bloqueio (senao viraria um atalho para adivinhar). */
+    private fun checkPin(p: String): Boolean = when (val r = Pin.attempt(p)) {
+        is Pin.Result.Ok -> true
+        is Pin.Result.Wrong -> { toast("PIN incorreto"); Sentinel.onEvent("PIN_FAIL", "PIN interno"); false }
+        is Pin.Result.Blocked -> { toast("Muitas tentativas. Aguarde ${(r.remainingMs + 999) / 1000} s"); false }
+        is Pin.Result.NotSet -> { askNewPin(firstTime = true); false }
+    }
+
+    private fun askNewPin(firstTime: Boolean) {
+        val field = EditText(this).apply {
+            hint = "4 a 8 digitos"
+            inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_VARIATION_PASSWORD
+        }
+        val dlg = AlertDialog.Builder(this)
+            .setTitle(if (firstTime) "Defina o PIN do app" else "Novo PIN do app")
+            .setMessage("Usado para sair da tela de bloqueio. Nao existe PIN padrao.")
+            .setView(field)
+            .setCancelable(!firstTime)
+            .setPositiveButton("Salvar") { _, _ ->
+                val p = field.text.toString()
+                if (Pin.isValidFormat(p)) { Pin.set(p); AppLog.add("PIN do app definido"); toast("PIN salvo") }
+                else { toast("O PIN deve ter de 4 a 8 digitos"); askNewPin(firstTime) }
+            }
+        if (!firstTime) dlg.setNegativeButton("Cancelar", null)
+        dlg.show()
     }
 
     private fun askPermissions() {
@@ -147,6 +183,7 @@ class MainActivity : Activity() {
         val c = Sentinel.cfg
         status.text = buildString {
             appendLine("Rede    : " + (if (Sentinel.online) "ONLINE" else "OFFLINE") + " - " + Sentinel.netInfo)
+            appendLine("PIN app : " + (if (Pin.isSet()) "definido" else "NAO definido"))
             appendLine("Pareado : " + (if (Prefs.token.isNotEmpty()) "sim (${Prefs.deviceId})" else "NAO - gere um codigo no painel"))
             appendLine("Fila    : ${Outbox.size()} pendente(s) | ${Outbox.lastStatus}")
             appendLine("Bloqueio: " + (if (Prefs.locked) "BLOQUEADO" else "livre") +

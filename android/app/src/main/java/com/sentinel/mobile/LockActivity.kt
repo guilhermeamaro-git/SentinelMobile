@@ -16,14 +16,45 @@ import android.widget.Toast
 
 class LockActivity : Activity() {
     private val ui = Handler(Looper.getMainLooper())
+    private lateinit var info: TextView
+    private lateinit var pin: EditText
+    private lateinit var go: Button
     private val watch = object : Runnable {
-        override fun run() { if (!Prefs.locked) finish() else ui.postDelayed(this, 1000) }   // UNLOCK remoto chega via polling
+        override fun run() {
+            if (!Prefs.locked) { finish(); return }   // UNLOCK remoto chega via polling
+            updateState()
+            ui.postDelayed(this, 1000)
+        }
+    }
+
+    private fun updateState() {
+        val wait = Pin.blockedForMs()
+        go.isEnabled = Pin.isSet() && wait == 0L
+        info.text = when {
+            !Pin.isSet() -> "PIN do app nao definido.\nO proprietario pode liberar pelo painel."
+            wait > 0 -> "Muitas tentativas erradas.\nTente de novo em ${(wait + 999) / 1000} s."
+            else -> "Bloqueio antirroubo ativo.\nO proprietario pode liberar pelo painel."
+        }
+    }
+
+    private fun tryUnlock() {
+        when (Pin.attempt(pin.text.toString())) {
+            is Pin.Result.Ok -> { LockManager.unlock(this); finish() }
+            is Pin.Result.Wrong -> {
+                // Erro na propria tela de bloqueio conta como tentativa de forca bruta (regra R1).
+                Sentinel.onEvent("PIN_FAIL", "tela de bloqueio")
+                Toast.makeText(this, "PIN incorreto", Toast.LENGTH_SHORT).show()
+            }
+            is Pin.Result.Blocked, is Pin.Result.NotSet -> Unit
+        }
+        pin.setText("")
+        updateState()
     }
 
     override fun onCreate(b: Bundle?) {
         super.onCreate(b)
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-        val pin = EditText(this).apply {
+        pin = EditText(this).apply {
             hint = "PIN de emergencia"; gravity = Gravity.CENTER
             inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_VARIATION_PASSWORD
             setTextColor(Color.WHITE); setHintTextColor(Color.argb(160, 255, 255, 255))
@@ -34,20 +65,19 @@ class LockActivity : Activity() {
             addView(TextView(context).apply {
                 text = "DISPOSITIVO BLOQUEADO"; textSize = 26f; setTextColor(Color.WHITE); gravity = Gravity.CENTER
             })
-            addView(TextView(context).apply {
-                text = "Bloqueio antirroubo ativo.\nO proprietario pode liberar pelo painel."
+            info = TextView(context).apply {
                 setTextColor(Color.WHITE); gravity = Gravity.CENTER; setPadding(0, 30, 0, 30)
-            })
+            }
+            addView(info)
             addView(pin)
-            addView(Button(context).apply {
+            go = Button(context).apply {
                 text = "Desbloquear"
-                setOnClickListener {
-                    if (pin.text.toString() == Prefs.unlockPin) { LockManager.unlock(context); finish() }
-                    else { Toast.makeText(context, "PIN incorreto", Toast.LENGTH_SHORT).show(); pin.setText("") }
-                }
-            })
+                setOnClickListener { tryUnlock() }
+            }
+            addView(go)
         }
         setContentView(root)
+        updateState()
     }
 
     @Deprecated("Bloqueia o botao voltar")

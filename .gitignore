@@ -13,3 +13,13 @@
 .externalNativeBuild
 .cxx
 local.properties
+
+# --- Backend: segredos e dados locais (nunca versionar) ---
+# Gerados automaticamente pelo servidor na primeira execucao.
+backend/config.json
+backend/certs/
+backend/sentinel.db
+backend/sentinel.db-*
+backend/photos/
+__pycache__/
+*.pyc

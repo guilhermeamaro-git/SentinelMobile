@@ -163,7 +163,8 @@ object Outbox {
                         lastStatus = "OK ${it.path.substringAfterLast('/')} ${r.code} $stamp"
                         AppLog.add("Enviado ${it.path} (HTTP ${r.code})")
                     }
-                    r.code in 400..499 && r.code != 408 && r.code != 429 -> {
+                    // 401 nao descarta: o alerta deve sobreviver ate o aparelho ser (re)pareado.
+                    r.code in 400..499 && r.code != 401 && r.code != 408 && r.code != 429 -> {
                         remove(it)   // erro do cliente: repetir nao adianta
                         lastStatus = "DESCARTADO ${r.code} $stamp"
                         AppLog.add("Descartado ${it.path}: HTTP ${r.code} ${r.body.take(120)}")

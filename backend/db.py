@@ -21,7 +21,11 @@ DEFAULTS = {
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS devices(
-  device_id TEXT PRIMARY KEY, first_seen INTEGER, last_seen INTEGER, locked INTEGER DEFAULT 0);
+  device_id TEXT PRIMARY KEY, first_seen INTEGER, last_seen INTEGER, locked INTEGER DEFAULT 0,
+  token_hash TEXT);
+CREATE UNIQUE INDEX IF NOT EXISTS ix_devices_token ON devices(token_hash);
+CREATE TABLE IF NOT EXISTS pairing_codes(
+  code_hash TEXT PRIMARY KEY, created INTEGER, expires INTEGER, used INTEGER DEFAULT 0);
 CREATE TABLE IF NOT EXISTS seen_ids(id TEXT PRIMARY KEY, ts INTEGER);
 CREATE TABLE IF NOT EXISTS locations(
   id INTEGER PRIMARY KEY AUTOINCREMENT, device_id TEXT, ts INTEGER, lat REAL, lon REAL,
@@ -70,8 +74,16 @@ def tx():
             conn.close()
 
 
+def _migrate(conn: sqlite3.Connection):
+    """Atualiza bancos criados por versoes antigas (antes do token por aparelho)."""
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(devices)").fetchall()}
+    if cols and "token_hash" not in cols:
+        conn.execute("ALTER TABLE devices ADD COLUMN token_hash TEXT")
+
+
 def init():
     conn = _connect()
+    _migrate(conn)
     conn.executescript(SCHEMA)
     conn.commit()
     conn.close()

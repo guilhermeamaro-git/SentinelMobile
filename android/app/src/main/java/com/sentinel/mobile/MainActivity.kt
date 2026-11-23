@@ -62,13 +62,18 @@ class MainActivity : Activity() {
         // --- conexao
         root.addView(head("Conexao"))
         val url = input("URL (https://IP:8443)", Prefs.baseUrl)
-        val tok = input("DEVICE_TOKEN (do terminal do servidor)", Prefs.token)
-        val did = input("Device ID", Prefs.deviceId)
-        root.addView(url); root.addView(tok); root.addView(did)
+        val did = input("Device ID (nome do aparelho no painel)", Prefs.deviceId)
+        val code = input("Codigo de pareamento (gerado no painel)", "")
+        root.addView(url); root.addView(did); root.addView(code)
         root.addView(row(
             btn("Salvar") {
-                Prefs.baseUrl = url.text.toString(); Prefs.token = tok.text.toString(); Prefs.deviceId = did.text.toString()
+                Prefs.baseUrl = url.text.toString(); Prefs.deviceId = did.text.toString()
                 Sentinel.refreshNow(); Toast.makeText(this, "Salvo", Toast.LENGTH_SHORT).show()
+            },
+            btn("Parear") {
+                Prefs.baseUrl = url.text.toString(); Prefs.deviceId = did.text.toString()
+                if (code.text.isBlank()) Toast.makeText(this, "Gere um codigo no painel", Toast.LENGTH_SHORT).show()
+                else { Sentinel.pair(code.text.toString()); code.setText("") }
             },
             btn("Testar conexao") { Sentinel.testConnection() }
         ))
@@ -142,6 +147,7 @@ class MainActivity : Activity() {
         val c = Sentinel.cfg
         status.text = buildString {
             appendLine("Rede    : " + (if (Sentinel.online) "ONLINE" else "OFFLINE") + " - " + Sentinel.netInfo)
+            appendLine("Pareado : " + (if (Prefs.token.isNotEmpty()) "sim (${Prefs.deviceId})" else "NAO - gere um codigo no painel"))
             appendLine("Fila    : ${Outbox.size()} pendente(s) | ${Outbox.lastStatus}")
             appendLine("Bloqueio: " + (if (Prefs.locked) "BLOQUEADO" else "livre") +
                     " | DeviceAdmin: " + (if (LockManager.isAdmin(this@MainActivity)) "ativo" else "INATIVO"))

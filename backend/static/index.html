@@ -28,6 +28,7 @@ a{color:var(--acc)}img.th{width:64px;height:64px;object-fit:cover;border-radius:
 input[type=number]{width:90px;padding:5px;border-radius:5px;border:1px solid #475569;background:#0f172a;color:var(--tx)}
 #toast{position:fixed;bottom:16px;right:16px;background:#020617;padding:10px 14px;border-radius:8px;opacity:0;transition:.3s;max-width:80vw}
 #toast.show{opacity:1}
+.pair{margin-top:10px;padding:10px;border-radius:8px;background:#0f172a}.pair b{font:700 26px ui-monospace,monospace;letter-spacing:.12em;color:var(--acc)}
 </style>
 </head>
 <body>
@@ -36,7 +37,9 @@ input[type=number]{width:90px;padding:5px;border-radius:5px;border:1px solid #47
 <main>
   <section class="card"><h2>Dispositivos</h2><div id="devices"></div>
     <div class="row"><button class="b-bad" onclick="cmd('LOCK')">Bloquear</button>
-    <button class="b-ok" onclick="cmd('UNLOCK')">Desbloquear</button></div></section>
+    <button class="b-ok" onclick="cmd('UNLOCK')">Desbloquear</button>
+    <button class="b-acc" onclick="pair()">Parear novo aparelho</button></div>
+    <div id="pairbox" class="pair hidden"></div></section>
 
   <section class="card"><h2>Simulacao</h2>
     <div class="row"><button class="b-acc" onclick="sim('R1')">Disparar R1</button>
@@ -92,7 +95,8 @@ function render(s) {
     const l = d.last_location;
     return `<div style="margin-bottom:10px"><b>${esc(d.device_id)}</b>
       <span class="badge ${d.online?'on':'off'}">${d.online?'online':'offline'}</span>
-      ${d.locked?'<span class="badge lock">BLOQUEADO</span>':''}<br>
+      ${d.locked?'<span class="badge lock">BLOQUEADO</span>':''}
+      ${d.paired?'':'<span class="badge off">nao pareado</span>'}<br>
       <span class="mut">Ultima posicao:</span> ${l ? loc(l.lat,l.lon)+` (±${l.accuracy!=null?Math.round(l.accuracy)+' m':'?'}, ${esc(l.source)}, ${tm(l.ts)})` : '<span class="mut">nenhuma</span>'}<br>
       <span class="mut">Visto por ultimo:</span> ${tm(d.last_seen)}</div>`; }).join("") : '<span class="mut">Nenhum dispositivo conectou ainda.</span>';
 
@@ -123,6 +127,14 @@ async function saveSettings(){
     const body = {}; FIELDS.forEach(([k]) => body[k] = parseInt($("#s_"+k).value, 10));
     body.AUTO_LOCK_RULES = ["R1","R2","R3"].filter(r => $("#al_"+r).checked);
     fillSettings(await api("/api/v1/settings", {method:"PUT", body: JSON.stringify(body)})); toast("Parametros salvos");
+  } catch(e){ toast("Erro: " + e.message); }
+}
+async function pair(){
+  try {
+    const r = await api("/api/v1/pairing", {method:"POST"});
+    $("#pairbox").innerHTML = `Codigo de pareamento: <b>${esc(r.code)}</b><br><span class="mut">Digite no app (campo
+      "Codigo de pareamento"). Vale para um aparelho, ate ${tm(r.expires)}.</span>`;
+    $("#pairbox").classList.remove("hidden");
   } catch(e){ toast("Erro: " + e.message); }
 }
 async function cmd(c){ try { const r = await api("/api/v1/commands", {method:"POST", body: JSON.stringify({command:c})}); toast(c + " enfileirado para " + r.device_id); } catch(e){ toast("Erro: " + e.message); } }

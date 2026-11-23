@@ -2,11 +2,14 @@
 import argparse
 import base64
 import binascii
+import hashlib
 import hmac
 import json
 import logging
+import re
 import secrets
 import sys
+import threading
 from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional
 
@@ -28,14 +31,16 @@ log = logging.getLogger("sentinel")
 
 # ----------------------------------------------------------------- config/tokens
 def load_config() -> dict:
+    """So guarda o token do admin. Cada aparelho recebe o proprio token no pareamento
+    (o antigo 'device_token' compartilhado deixou de existir e e ignorado se presente)."""
     if CFG_PATH.exists():
         try:
             cfg = json.loads(CFG_PATH.read_text())
-            if cfg.get("admin_token") and cfg.get("device_token"):
-                return cfg
+            if cfg.get("admin_token"):
+                return {"admin_token": cfg["admin_token"]}
         except ValueError:
             pass
-    cfg = {"admin_token": secrets.token_urlsafe(18), "device_token": secrets.token_urlsafe(24)}
+    cfg = {"admin_token": secrets.token_urlsafe(18)}
     CFG_PATH.write_text(json.dumps(cfg, indent=2))
     return cfg
 
@@ -59,19 +64,52 @@ def _eq(a: str, b: str) -> bool:
     return hmac.compare_digest(a.encode("utf-8"), b.encode("utf-8"))
 
 
-def auth_device(authorization: Optional[str] = Header(None),
-                x_device_id: Optional[str] = Header(None)) -> str:
-    token = authorization or ""
+def token_hash(token: str) -> str:
+    """O banco guarda so o SHA-256 do token: quem ler o sentinel.db nao consegue se passar pelo aparelho.
+    Como o token e aleatorio (256 bits), nao precisa de salt nem de hash lento."""
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+
+def auth_device(authorization: Optional[str] = Header(None)) -> str:
+    """A identidade do aparelho vem do token (unico por aparelho), nao de um cabecalho
+    que o cliente escolhe. O X-Device-Id que o app ainda envia e ignorado."""
+    token = (authorization or "").strip()
     if token.startswith("Bearer "):
-        token = token[7:]
-    if not _eq(token.strip(), CFG["device_token"]):
-        raise HTTPException(401, "token invalido")
-    did = (x_device_id or "").strip()
-    if not did or len(did) > 64:
-        raise HTTPException(400, "X-Device-Id ausente ou invalido")
+        token = token[7:].strip()
+    if not token:
+        raise HTTPException(401, "token ausente")
     with db.tx() as c:
-        db.touch_device(c, did)
-    return did
+        row = c.execute("SELECT device_id FROM devices WHERE token_hash=?", (token_hash(token),)).fetchone()
+        if not row:
+            raise HTTPException(401, "token invalido (aparelho nao pareado?)")
+        db.touch_device(c, row["device_id"])
+    return row["device_id"]
+
+
+class AttemptLimiter:
+    """Limita tentativas erradas (login do admin, codigo de pareamento) para dificultar forca bruta."""
+
+    def __init__(self, max_fails: int, window_s: int):
+        self.max_fails, self.window_ms = max_fails, window_s * 1000
+        self.fails: List[int] = []
+        self.lock = threading.Lock()
+
+    def check(self):
+        now = db.now_ms()
+        with self.lock:
+            self.fails = [t for t in self.fails if now - t < self.window_ms]
+            if len(self.fails) >= self.max_fails:
+                raise HTTPException(429, "muitas tentativas erradas; aguarde alguns minutos")
+
+    def fail(self):
+        with self.lock:
+            self.fails.append(db.now_ms())
+
+
+PAIR_LIMIT = AttemptLimiter(max_fails=20, window_s=600)
+PAIR_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"  # sem 0/O e 1/I para evitar confusao ao digitar
+PAIR_TTL_MS = 10 * 60 * 1000
+DEVICE_ID_RE = re.compile(r"^[A-Za-z0-9_.-]{1,64}$")
 
 
 def auth_admin(x_admin_token: Optional[str] = Header(None), t: Optional[str] = Query(None)) -> bool:
@@ -113,6 +151,11 @@ class AlertIn(BaseModel):
 class CommandIn(BaseModel):
     command: Literal["LOCK", "UNLOCK"]
     device_id: Optional[str] = None
+
+
+class RegisterIn(BaseModel):
+    code: str = Field(..., min_length=4, max_length=32)
+    device_id: str = Field(..., min_length=1, max_length=64)
 
 
 class SimIn(BaseModel):
@@ -226,6 +269,30 @@ def health():
     return {"status": "ok", "server_time": db.now_ms()}
 
 
+@app.post("/api/v1/register")
+def register(p: RegisterIn):
+    """Pareamento: o app troca um codigo de uso unico (gerado no painel) por um token so dele."""
+    PAIR_LIMIT.check()
+    code = re.sub(r"[\s-]", "", p.code).upper()
+    did = p.device_id.strip()
+    if not DEVICE_ID_RE.match(did):
+        raise HTTPException(400, "device_id invalido (use letras, numeros, _ . -)")
+    now = db.now_ms()
+    with db.tx() as c:
+        row = c.execute("SELECT code_hash FROM pairing_codes WHERE code_hash=? AND used=0 AND expires>?",
+                        (token_hash(code), now)).fetchone()
+        if not row:
+            PAIR_LIMIT.fail()
+            raise HTTPException(401, "codigo de pareamento invalido ou expirado")
+        c.execute("UPDATE pairing_codes SET used=1 WHERE code_hash=?", (row["code_hash"],))
+        token = secrets.token_urlsafe(32)
+        # Re-parear o mesmo device_id troca o token: o token antigo para de funcionar na hora.
+        db.touch_device(c, did)
+        c.execute("UPDATE devices SET token_hash=? WHERE device_id=?", (token_hash(token), did))
+    log.info("Aparelho pareado: %s", did)
+    return {"ok": True, "device_id": did, "token": token}
+
+
 @app.get("/api/v1/config")
 def get_config(did: str = Depends(auth_device)):
     with db.tx() as c:
@@ -311,6 +378,18 @@ def ack(cid: int, did: str = Depends(auth_device)):
 
 
 # ----------------------------------------------------------------- endpoints (dashboard)
+@app.post("/api/v1/pairing")
+def new_pairing_code(_: bool = Depends(auth_admin)):
+    """Gera um codigo de 8 caracteres, valido por 10 minutos e para um unico aparelho."""
+    code = "".join(secrets.choice(PAIR_ALPHABET) for _ in range(8))
+    now = db.now_ms()
+    with db.tx() as c:
+        c.execute("DELETE FROM pairing_codes WHERE expires<? OR used=1", (now,))
+        c.execute("INSERT INTO pairing_codes(code_hash,created,expires) VALUES(?,?,?)",
+                  (token_hash(code), now, now + PAIR_TTL_MS))
+    return {"code": code[:4] + "-" + code[4:], "expires": now + PAIR_TTL_MS}
+
+
 @app.post("/api/v1/commands")
 def create_command(p: CommandIn, _: bool = Depends(auth_admin)):
     with db.tx() as c:
@@ -376,7 +455,8 @@ def state(_: bool = Depends(auth_admin)):
     with db.tx() as c:
         def rows(q, a=()):
             return [dict(r) for r in c.execute(q, a).fetchall()]
-        devices = rows("SELECT * FROM devices ORDER BY last_seen DESC")
+        devices = rows("SELECT device_id, first_seen, last_seen, locked, (token_hash IS NOT NULL) AS paired "
+                       "FROM devices ORDER BY last_seen DESC")
         for d in devices:
             loc = c.execute("SELECT lat,lon,accuracy,source,ts FROM locations WHERE device_id=? "
                             "ORDER BY ts DESC, id DESC LIMIT 1", (d["device_id"],)).fetchone()
@@ -445,7 +525,7 @@ def main():
     print("-" * 66)
     print(" Dashboard (PC) : https://127.0.0.1:%d/?t=%s" % (args.port, CFG["admin_token"]))
     print(" Dashboard (rede): https://%s:%d/?t=%s" % (host_ip, args.port, CFG["admin_token"]))
-    print(" DEVICE_TOKEN (colar no app):", CFG["device_token"])
+    print(" Novo aparelho: no painel, 'Parear novo aparelho' gera um codigo; digite-o no app.")
     print(" Alternativa USB: adb reverse tcp:%d tcp:%d  (app usa 127.0.0.1)" % (args.port, args.port))
     print("=" * 66)
 

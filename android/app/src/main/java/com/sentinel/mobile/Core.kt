@@ -28,15 +28,20 @@ data class Cfg(
 
 object Prefs {
     private lateinit var sp: SharedPreferences
-    fun init(ctx: Context) { sp = ctx.getSharedPreferences("sentinel", Context.MODE_PRIVATE) }
+    fun init(ctx: Context) {
+        sp = ctx.getSharedPreferences("sentinel", Context.MODE_PRIVATE)
+        // Limpa o token compartilhado da versao antiga (agora cada aparelho tem o seu).
+        if (sp.contains("token")) sp.edit().remove("token").apply()
+    }
 
     var baseUrl: String
         get() = sp.getString("baseUrl", "https://127.0.0.1:8443")!!
         set(v) = sp.edit().putString("baseUrl", v.trim().trimEnd('/')).apply()
 
+    /** Token exclusivo deste aparelho, recebido no pareamento (POST /api/v1/register). */
     var token: String
-        get() = sp.getString("token", "")!!
-        set(v) = sp.edit().putString("token", v.trim()).apply()
+        get() = sp.getString("deviceToken", "")!!
+        set(v) = sp.edit().putString("deviceToken", v.trim()).apply()
 
     var deviceId: String
         get() {

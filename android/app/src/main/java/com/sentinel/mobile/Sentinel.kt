@@ -49,7 +49,7 @@ object Sentinel {
             val r = Http.call(app, "GET", "/api/v1/commands/poll", null)
             if (r.code != 200) {
                 online = false
-                netInfo = if (r.code == 401) "HTTP 401 (token do dispositivo errado?)" else "HTTP ${r.code}"
+                netInfo = if (r.code == 401) "HTTP 401 (aparelho nao pareado?)" else "HTTP ${r.code}"
                 return
             }
             online = true; netInfo = "ok"
@@ -91,13 +91,34 @@ object Sentinel {
         sched.execute(safe("poll") { poll() })
     }
 
+    /** Troca o codigo de uso unico (gerado no painel) pelo token exclusivo deste aparelho. */
+    fun pair(code: String) {
+        sched.execute(safe("pareamento") {
+            try {
+                val body = JSONObject().put("code", code.trim()).put("device_id", Prefs.deviceId).toString()
+                val r = Http.call(app, "POST", "/api/v1/register", body, auth = false)
+                if (r.code == 200) {
+                    val j = JSONObject(r.body)
+                    Prefs.token = j.getString("token")
+                    Prefs.deviceId = j.getString("device_id")
+                    AppLog.add("Pareado com sucesso como ${Prefs.deviceId}")
+                    refreshNow()
+                } else {
+                    AppLog.add("Pareamento falhou: HTTP ${r.code} ${r.body.take(120)}")
+                }
+            } catch (e: IOException) {
+                AppLog.add("Pareamento falhou: " + describeError(e))
+            }
+        })
+    }
+
     fun testConnection() {
         sched.execute(safe("teste") {
             try {
                 val h = Http.call(app, "GET", "/api/v1/health", null, auth = false)
                 AppLog.add("TESTE health: HTTP ${h.code} (TLS + TCP ok)")
                 val c = Http.call(app, "GET", "/api/v1/config", null)
-                AppLog.add("TESTE auth: HTTP ${c.code}" + if (c.code == 401) " -> token errado" else " -> token ok")
+                AppLog.add("TESTE auth: HTTP ${c.code}" + if (c.code == 401) " -> aparelho nao pareado" else " -> pareado ok")
             } catch (e: IOException) { AppLog.add("TESTE falhou: " + describeError(e)) }
         })
     }

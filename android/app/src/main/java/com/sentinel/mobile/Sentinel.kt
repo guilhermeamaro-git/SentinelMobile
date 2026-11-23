@@ -159,6 +159,11 @@ object Sentinel {
         }
     }
 
+    /** Alerta de seguranca fora das regras R1/R2/R3 (ex.: Device Admin desativado). */
+    fun securityAlert(rule: String, detail: String) {
+        work.execute(safe("alerta") { raiseAlert(listOf(rule), detail) })
+    }
+
     fun manualAlert() {
         work.execute(safe("alerta") { raiseAlert(listOf("MANUAL"), "Alerta manual (teste foto+GPS)") })
     }

@@ -85,4 +85,14 @@ class LockActivity : Activity() {
 
     override fun onResume() { super.onResume(); ui.post(watch) }
     override fun onPause() { super.onPause(); ui.removeCallbacks(watch) }
+
+    /**
+     * Home e Recentes nao podem ser bloqueados por um app comum, entao a tela vermelha sozinha e
+     * facil de contornar. Se ela sair de cena enquanto o aparelho esta bloqueado, travamos a tela do
+     * proprio Android (lockNow), que exige o PIN/biometria do aparelho.
+     */
+    override fun onStop() {
+        super.onStop()
+        if (Prefs.locked && !isChangingConfigurations) LockManager.lockScreen(this)
+    }
 }

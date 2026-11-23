@@ -2,11 +2,34 @@ package com.sentinel.mobile
 
 import android.app.admin.DeviceAdminReceiver
 import android.app.admin.DevicePolicyManager
+import android.content.BroadcastReceiver
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 
-class AdminReceiver : DeviceAdminReceiver()
+class AdminReceiver : DeviceAdminReceiver() {
+    /** Texto que o Android mostra quando alguem tenta desativar o Device Admin. */
+    override fun onDisableRequested(context: Context, intent: Intent): CharSequence =
+        "Desativar o SentinelMobile desliga o bloqueio antirroubo. O painel sera avisado."
+
+    /** Desativar o Device Admin e o primeiro passo para desinstalar o app: avisa o painel. */
+    override fun onDisabled(context: Context, intent: Intent) {
+        AppLog.add("Device Admin DESATIVADO")
+        Sentinel.securityAlert("ADMIN_OFF", "Device Admin desativado no aparelho")
+    }
+}
+
+/**
+ * Depois de reiniciar o aparelho: o processo do app sobe (SentinelApp inicia o monitoramento)
+ * e, se o aparelho estava bloqueado, o bloqueio e reaplicado.
+ */
+class BootReceiver : BroadcastReceiver() {
+    override fun onReceive(context: Context, intent: Intent) {
+        if (intent.action != Intent.ACTION_BOOT_COMPLETED) return
+        AppLog.add("Aparelho reiniciado: monitoramento retomado")
+        if (Prefs.locked) LockManager.lock(context, "reinicio com bloqueio ativo")
+    }
+}
 
 /** Janela deslizante local. Espelha ingest_event() do servidor (mesmas regras R1/R2/R3 e cooldown). */
 class RuleEngine {
@@ -59,12 +82,14 @@ object LockManager {
             ctx.startActivity(Intent(ctx, LockActivity::class.java)
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP))
         } catch (e: Exception) { AppLog.add("Tela de bloqueio nao abriu: ${e.message}") }
-        if (isAdmin(ctx)) {
-            try { dpm(ctx).lockNow(); AppLog.add("lockNow() executado") }
-            catch (e: SecurityException) { AppLog.add("lockNow() negado: ${e.message}") }
-        } else {
-            AppLog.add("Device Admin inativo: so a tela de bloqueio do app foi usada")
-        }
+        if (!lockScreen(ctx)) AppLog.add("Device Admin inativo: so a tela de bloqueio do app foi usada")
+    }
+
+    /** Trava a tela do proprio Android (exige o PIN/biometria do aparelho). Retorna false sem Device Admin. */
+    fun lockScreen(ctx: Context): Boolean {
+        if (!isAdmin(ctx)) return false
+        return try { dpm(ctx).lockNow(); AppLog.add("lockNow() executado"); true }
+        catch (e: SecurityException) { AppLog.add("lockNow() negado: ${e.message}"); false }
     }
 
     fun unlock(ctx: Context) {

@@ -83,11 +83,7 @@ class MainActivity : Activity() {
         root.addView(head("Permissoes e bloqueio"))
         root.addView(row(
             btn("Permissoes") { askPermissions() },
-            btn("Ativar Device Admin") {
-                startActivity(Intent(DevicePolicyManager.ACTION_ADD_DEVICE_ADMIN)
-                    .putExtra(DevicePolicyManager.EXTRA_DEVICE_ADMIN, LockManager.component(this))
-                    .putExtra(DevicePolicyManager.EXTRA_ADD_EXPLANATION, "Necessario para bloquear a tela (lockNow)."))
-            }
+            btn("Ativar Device Admin") { requestAdmin() }
         ))
         root.addView(row(
             btn("Bloquear agora") { Sentinel.sendLocationNow(); LockManager.lock(this, "botao local") },
@@ -131,6 +127,16 @@ class MainActivity : Activity() {
 
         askPermissions()
         if (!Pin.isSet()) askNewPin(firstTime = true)   // nao existe PIN padrao
+        // Device Admin e obrigatorio: sem ele o bloqueio e so a tela do app, contornavel pelo botao Home.
+        if (!LockManager.isAdmin(this)) requestAdmin()
+    }
+
+    private fun requestAdmin() {
+        startActivity(Intent(DevicePolicyManager.ACTION_ADD_DEVICE_ADMIN)
+            .putExtra(DevicePolicyManager.EXTRA_DEVICE_ADMIN, LockManager.component(this))
+            .putExtra(DevicePolicyManager.EXTRA_ADD_EXPLANATION,
+                "Obrigatorio: permite travar a tela do aparelho (lockNow) quando um ataque e detectado " +
+                "ou quando o painel manda bloquear. Sem isso o bloqueio pode ser contornado."))
     }
 
     private fun toast(msg: String) = Toast.makeText(this, msg, Toast.LENGTH_SHORT).show()
@@ -182,6 +188,8 @@ class MainActivity : Activity() {
         val fix = Prefs.lastFix
         val c = Sentinel.cfg
         status.text = buildString {
+            if (!LockManager.isAdmin(this@MainActivity))
+                appendLine("!! DEVICE ADMIN INATIVO: o bloqueio NAO protege. Toque em 'Ativar Device Admin'.")
             appendLine("Rede    : " + (if (Sentinel.online) "ONLINE" else "OFFLINE") + " - " + Sentinel.netInfo)
             appendLine("PIN app : " + (if (Pin.isSet()) "definido" else "NAO definido"))
             appendLine("Pareado : " + (if (Prefs.token.isNotEmpty()) "sim (${Prefs.deviceId})" else "NAO - gere um codigo no painel"))

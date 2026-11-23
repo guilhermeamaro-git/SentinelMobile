@@ -247,6 +247,10 @@ RULES = {
 }
 
 
+# Alertas enviados pelo app fora das regras R1/R2/R3.
+EXTRA_SEVERITY = {"ADMIN_OFF": "ALTA", "MANUAL": "MEDIA"}
+
+
 def _count(c, did, etype, lo, hi) -> int:
     return c.execute("SELECT COUNT(*) FROM events WHERE device_id=? AND event_type=? AND ts>? AND ts<=?",
                      (did, etype, lo, hi)).fetchone()[0]
@@ -353,7 +357,7 @@ def post_event(p: EventIn, did: str = Depends(auth_device)):
 def post_alert(p: AlertIn, did: str = Depends(auth_device)):
     ts = norm_ts(p.ts)
     photo = decode_photo(p.photo_b64) if p.photo_b64 else None
-    sev = RULES.get(p.rule_id, ("MEDIA", ""))[0]
+    sev = RULES[p.rule_id][0] if p.rule_id in RULES else EXTRA_SEVERITY.get(p.rule_id, "MEDIA")
     with db.tx() as c:
         if not db.mark_seen(c, p.event_id):
             return {"ok": True, "duplicate": True}
